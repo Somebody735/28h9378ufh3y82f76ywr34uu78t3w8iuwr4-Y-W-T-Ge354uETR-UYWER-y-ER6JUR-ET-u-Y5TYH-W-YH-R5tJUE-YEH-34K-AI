@@ -136,39 +136,6 @@ async function testFunctionEndpoint() {
   return results.join(' | ');
 }
 
-async function testFunctionEndpoint() {
-  const url = `${SUPABASE_FUNCTION_URL}/api`;
-  try {
-    const optionsResponse = await fetch(url, {
-      method: 'OPTIONS',
-    });
-    if (!optionsResponse.ok) {
-      return `OPTIONS request failed with status ${optionsResponse.status}`;
-    }
-  } catch (error) {
-    throw new Error(`OPTIONS request failed: ${error.message}`);
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-device-code': state.deviceCode,
-        'x-access-password': state.accessPassword || '',
-      },
-      body: JSON.stringify({ action: 'checkAuth', payload: {} }),
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      return `POST request failed with status ${response.status}: ${text}`;
-    }
-    return `Connection OK. POST returned: ${text}`;
-  } catch (error) {
-    throw new Error(`POST request failed: ${error.message}`);
-  }
-}
-
 async function claimAdminIfMissing() {
   try {
     await apiCall('claimAdminIfMissing', { device_code: state.deviceCode });

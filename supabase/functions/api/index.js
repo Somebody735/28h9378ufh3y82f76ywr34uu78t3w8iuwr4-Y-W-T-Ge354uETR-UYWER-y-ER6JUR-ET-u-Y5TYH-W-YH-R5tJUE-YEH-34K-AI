@@ -15,7 +15,7 @@ const CORS_HEADERS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, x-device-code, x-access-password',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey, x-device-code, x-access-password',
 };
 
 async function jsonResponse(body, status = 200) {

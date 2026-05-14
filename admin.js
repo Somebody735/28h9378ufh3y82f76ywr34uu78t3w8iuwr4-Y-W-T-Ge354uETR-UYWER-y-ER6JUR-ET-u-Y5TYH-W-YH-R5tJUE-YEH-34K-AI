@@ -1,4 +1,4 @@
-import { SUPABASE_FUNCTION_URL } from './supabase-config.js';
+import { SUPABASE_FUNCTION_URL, SUPABASE_ANON_KEY } from './supabase-config.js';
 
 const DEVICE_STORAGE_KEY = 'ai-device-code';
 const functionUrlCandidates = (() => {
@@ -66,6 +66,8 @@ async function apiCall(action, payload = {}) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        apikey: SUPABASE_ANON_KEY,
         'x-device-code': state.deviceCode,
         'x-access-password': '',
       },
@@ -111,6 +113,8 @@ async function testFunctionEndpoint() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: SUPABASE_ANON_KEY,
           'x-device-code': state.deviceCode,
           'x-access-password': '',
         },

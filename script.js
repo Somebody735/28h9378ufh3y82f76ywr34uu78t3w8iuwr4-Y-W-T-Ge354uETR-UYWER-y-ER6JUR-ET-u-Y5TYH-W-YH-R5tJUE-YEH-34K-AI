@@ -1,9 +1,7 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-config.js';
+import { SUPABASE_FUNCTION_URL } from './supabase-config.js';
 
 const PASSWORD_STORAGE_KEY = 'ai-access-password';
 const DEVICE_STORAGE_KEY = 'ai-device-code';
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById('app');
 
 const state = {
@@ -27,19 +25,19 @@ function getOrCreateDeviceCode() {
 }
 
 async function apiCall(action, payload = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-device-code': state.deviceCode,
-    'x-access-password': state.accessPassword || '',
-  };
-
-  const { data, error } = await supabase.functions.invoke('api', {
-    body: { action, payload },
-    headers,
+  const response = await fetch(`${SUPABASE_FUNCTION_URL}/api`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-device-code': state.deviceCode,
+      'x-access-password': state.accessPassword || '',
+    },
+    body: JSON.stringify({ action, payload }),
   });
 
-  if (error) {
-    throw error;
+  const data = await response.json();
+  if (!response.ok || data?.error) {
+    throw new Error(data?.error || `Function request failed with status ${response.status}`);
   }
   return data;
 }

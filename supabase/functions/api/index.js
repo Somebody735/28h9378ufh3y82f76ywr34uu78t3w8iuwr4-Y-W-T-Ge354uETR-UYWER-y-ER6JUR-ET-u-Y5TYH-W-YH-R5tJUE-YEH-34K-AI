@@ -11,10 +11,27 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
+const CORS_HEADERS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-device-code, x-access-password',
+};
+
 async function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: CORS_HEADERS,
+  });
+}
+
+function optionsResponse() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Length': '0',
+    },
   });
 }
 
@@ -224,6 +241,9 @@ async function handleRevokeDevice(request, payload) {
 }
 
 serve(async (request) => {
+  if (request.method === 'OPTIONS') {
+    return optionsResponse();
+  }
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Only POST requests are supported.' }, 405);
   }

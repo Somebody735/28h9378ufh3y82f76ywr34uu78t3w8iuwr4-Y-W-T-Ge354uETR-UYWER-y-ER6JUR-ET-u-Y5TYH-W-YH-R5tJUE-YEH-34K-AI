@@ -59,6 +59,39 @@ async function apiCall(action, payload = {}) {
   }
 }
 
+async function testFunctionEndpoint() {
+  const url = `${SUPABASE_FUNCTION_URL}/api`;
+  try {
+    const optionsResponse = await fetch(url, {
+      method: 'OPTIONS',
+    });
+    if (!optionsResponse.ok) {
+      return `OPTIONS request failed with status ${optionsResponse.status}`;
+    }
+  } catch (error) {
+    throw new Error(`OPTIONS request failed: ${error.message}`);
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-device-code': state.deviceCode,
+        'x-access-password': state.accessPassword || '',
+      },
+      body: JSON.stringify({ action: 'checkAuth', payload: {} }),
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      return `POST request failed with status ${response.status}: ${text}`;
+    }
+    return `Connection OK. POST returned: ${text}`;
+  } catch (error) {
+    throw new Error(`POST request failed: ${error.message}`);
+  }
+}
+
 async function claimAdminIfMissing() {
   try {
     await apiCall('claimAdminIfMissing', { device_code: state.deviceCode });
@@ -103,11 +136,17 @@ function renderAccessForm() {
       <button class="button" type="submit">Unlock Chat</button>
     </form>
     <div id="access-error"></div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">
+      <button id="diagnose-button" class="button" type="button">Check Connection</button>
+      <div id="diagnostic-result" style="font-size:0.95rem; color:var(--muted);"></div>
+    </div>
   `;
   app.appendChild(section);
 
   const form = section.querySelector('#access-form');
   const errorBox = section.querySelector('#access-error');
+  const diagnoseButton = section.querySelector('#diagnose-button');
+  const diagnosticResult = section.querySelector('#diagnostic-result');
   if (state.error) {
     errorBox.innerHTML = `<div class="alert">${state.error}</div>`;
   }
@@ -124,6 +163,19 @@ function renderAccessForm() {
       render();
     } catch (error) {
       errorBox.innerHTML = `<div class="alert">${error.message || 'Failed to redeem code. Please try again.'}</div>`;
+    }
+  });
+
+  diagnoseButton.addEventListener('click', async () => {
+    diagnosticResult.textContent = 'Checking...';
+    diagnoseButton.disabled = true;
+    try {
+      const result = await testFunctionEndpoint();
+      diagnosticResult.textContent = result;
+    } catch (error) {
+      diagnosticResult.textContent = error.message || 'Connection test failed.';
+    } finally {
+      diagnoseButton.disabled = false;
     }
   });
 }

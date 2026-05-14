@@ -22,21 +22,38 @@ function getOrCreateDeviceCode() {
 }
 
 async function apiCall(action, payload = {}) {
-  const response = await fetch(`${SUPABASE_FUNCTION_URL}/api`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-device-code': state.deviceCode,
-      'x-access-password': '',
-    },
-    body: JSON.stringify({ action, payload }),
-  });
+  try {
+    const response = await fetch(`${SUPABASE_FUNCTION_URL}/api`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-device-code': state.deviceCode,
+        'x-access-password': '',
+      },
+      body: JSON.stringify({ action, payload }),
+    });
 
-  const data = await response.json();
-  if (!response.ok || data?.error) {
-    throw new Error(data?.error || `Function request failed with status ${response.status}`);
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (parseError) {
+      throw new Error(`Invalid JSON response from function at ${SUPABASE_FUNCTION_URL}/api: ${parseError.message} - response text: ${text}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Function request failed with status ${response.status}: ${data?.error || text || response.statusText}`);
+    }
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`Failed to connect to the edge function at ${SUPABASE_FUNCTION_URL}/api: ${error.message}`);
+    }
+    throw error;
   }
-  return data;
 }
 
 function generateOtp() {

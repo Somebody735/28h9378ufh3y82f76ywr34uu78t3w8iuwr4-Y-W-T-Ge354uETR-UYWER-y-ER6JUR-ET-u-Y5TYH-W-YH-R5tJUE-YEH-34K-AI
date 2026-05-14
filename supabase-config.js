@@ -1,3 +1,3 @@
 export const SUPABASE_URL = 'https://fupseajkjpiauquhdfhw.supabase.co';
-export const SUPABASE_ANON_KEY = 'sb_publishable_vFYPsF7_aL90oLkjeqs4AA_e_7eTmr1';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cHNlYWpranBpYXVxdWhkZmh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTc4MDgsImV4cCI6MjA5MjM3MzgwOH0.UsZfYBpspXYeDJTwIW1SW5ICESNzbdwrCBYUfNsEhgk';
 export const SUPABASE_FUNCTION_URL = 'https://fupseajkjpiauquhdfhw.supabase.co/functions/v1';

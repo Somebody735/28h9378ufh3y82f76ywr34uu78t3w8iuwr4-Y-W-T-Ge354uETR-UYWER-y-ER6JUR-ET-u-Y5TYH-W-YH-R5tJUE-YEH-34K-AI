@@ -138,9 +138,29 @@ function renderBlocked(message) {
     <div class="section centered">
       <h1>Access Denied</h1>
       <p>${message || 'This device is not authorized to view the admin dashboard.'}</p>
-      <a class="button" href="index.html">Go to Chat Home</a>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center; margin-top:16px;">
+        <button id="admin-diagnose-button" class="button" type="button">Check Function Connection</button>
+        <a class="button" href="index.html">Go to Chat Home</a>
+      </div>
+      <div id="admin-diagnostic-result" style="margin-top:16px; color:var(--muted); font-size:0.95rem;"></div>
     </div>
   `;
+
+  const diagnoseButton = document.getElementById('admin-diagnose-button');
+  const diagnosticResult = document.getElementById('admin-diagnostic-result');
+
+  diagnoseButton.addEventListener('click', async () => {
+    diagnosticResult.textContent = 'Checking...';
+    diagnoseButton.disabled = true;
+    try {
+      const result = await testFunctionEndpoint();
+      diagnosticResult.textContent = result;
+    } catch (error) {
+      diagnosticResult.textContent = error.message || 'Connection test failed.';
+    } finally {
+      diagnoseButton.disabled = false;
+    }
+  });
 }
 
 function renderAdminPanel() {

@@ -1,6 +1,19 @@
 import { SUPABASE_FUNCTION_URL } from './supabase-config.js';
 
 const DEVICE_STORAGE_KEY = 'ai-device-code';
+const functionUrlCandidates = (() => {
+  const url = SUPABASE_FUNCTION_URL.replace(/\/$/, '');
+  const candidates = [url];
+  if (url.includes('.supabase.co/functions/v1')) {
+    candidates.push(url.replace('.supabase.co/functions/v1', '.functions.supabase.co'));
+  }
+  if (url.includes('.functions.supabase.co')) {
+    candidates.push(url.replace('.functions.supabase.co', '.supabase.co/functions/v1'));
+  }
+  return [...new Set(candidates)];
+})();
+let activeFunctionUrl = null;
+
 const app = document.getElementById('admin-app');
 
 const state = {
@@ -21,9 +34,35 @@ function getOrCreateDeviceCode() {
   return code;
 }
 
+function getFunctionEndpoint(url) {
+  return url.endsWith('/api') ? url : `${url}/api`;
+}
+
+async function resolveFunctionUrl() {
+  if (activeFunctionUrl) return activeFunctionUrl;
+
+  const errors = [];
+  for (const candidate of functionUrlCandidates) {
+    const endpoint = getFunctionEndpoint(candidate);
+    try {
+      const response = await fetch(endpoint, { method: 'OPTIONS' });
+      if (response.ok) {
+        activeFunctionUrl = endpoint;
+        return activeFunctionUrl;
+      }
+      errors.push(`${endpoint} returned ${response.status}`);
+    } catch (fetchError) {
+      errors.push(`${endpoint} error: ${fetchError.message}`);
+    }
+  }
+
+  throw new Error(`No working function endpoint found. Tried: ${errors.join('; ')}`);
+}
+
 async function apiCall(action, payload = {}) {
+  const endpoint = await resolveFunctionUrl();
   try {
-    const response = await fetch(`${SUPABASE_FUNCTION_URL}/api`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -38,7 +77,7 @@ async function apiCall(action, payload = {}) {
     try {
       data = text ? JSON.parse(text) : {};
     } catch (parseError) {
-      throw new Error(`Invalid JSON response from function at ${SUPABASE_FUNCTION_URL}/api: ${parseError.message} - response text: ${text}`);
+      throw new Error(`Invalid JSON response from function at ${endpoint}: ${parseError.message} - response text: ${text}`);
     }
 
     if (!response.ok) {
@@ -50,10 +89,44 @@ async function apiCall(action, payload = {}) {
     return data;
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error(`Failed to connect to the edge function at ${SUPABASE_FUNCTION_URL}/api: ${error.message}`);
+      throw new Error(`Failed to connect to the edge function at ${endpoint}: ${error.message}`);
     }
     throw error;
   }
+}
+
+async function testFunctionEndpoint() {
+  const results = [];
+  for (const candidate of functionUrlCandidates) {
+    const endpoint = getFunctionEndpoint(candidate);
+    try {
+      const optionsResponse = await fetch(endpoint, { method: 'OPTIONS' });
+      results.push(`${endpoint} OPTIONS ${optionsResponse.status}`);
+    } catch (error) {
+      results.push(`${endpoint} OPTIONS failed: ${error.message}`);
+      continue;
+    }
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-device-code': state.deviceCode,
+          'x-access-password': '',
+        },
+        body: JSON.stringify({ action: 'checkAuth', payload: {} }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        results.push(`${endpoint} POST ${response.status}: ${text}`);
+      } else {
+        results.push(`${endpoint} POST ${response.status}: OK`);
+      }
+    } catch (error) {
+      results.push(`${endpoint} POST failed: ${error.message}`);
+    }
+  }
+  return results.join(' | ');
 }
 
 function generateOtp() {

@@ -6,6 +6,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const ZAI_API_KEY = Deno.env.get('ZAI_API_KEY');
 const ZAI_API_URL = Deno.env.get('ZAI_API_URL') || 'https://api.z.ai/v1/chat/completions';
 const ZAI_MODEL = Deno.env.get('ZAI_MODEL') || 'glm';
+const ADMIN_DEVICE_CODE = Deno.env.get('ADMIN_DEVICE_CODE');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -45,39 +46,24 @@ async function parseRequest(request) {
 
 async function verifyDevice(deviceCode, accessPassword) {
   if (!deviceCode) return null;
+  const isAdmin = deviceCode === ADMIN_DEVICE_CODE;
+  if (isAdmin) {
+    return { device_code: deviceCode, is_admin: true, active: true };
+  }
   const { data, error } = await supabase
     .from('device_codes')
-    .select('device_code,is_admin,active')
+    .select('device_code,active')
     .eq('device_code', deviceCode)
     .eq('access_password', accessPassword || '')
     .single();
   if (error || !data || !data.active) {
     return null;
   }
-  return data;
+  return { ...data, is_admin: false };
 }
 
 async function handleClaimAdminIfMissing(payload) {
-  const deviceCode = payload?.device_code;
-  if (!deviceCode) {
-    return jsonResponse({ error: 'Missing device_code for claimAdminIfMissing' }, 400);
-  }
-  const { data: currentAdmin } = await supabase.from('device_codes').select('device_code').eq('is_admin', true).limit(1).single();
-  if (currentAdmin?.device_code) {
-    return jsonResponse({ ok: true, message: 'Admin already exists' });
-  }
-  const { error } = await supabase.from('device_codes').upsert({
-    device_code: deviceCode,
-    access_password: '',
-    active: true,
-    is_admin: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'device_code' });
-  if (error) {
-    return jsonResponse({ error: error.message }, 500);
-  }
-  return jsonResponse({ ok: true, message: 'Admin device registered' });
+  return jsonResponse({ ok: true, message: 'Admin is now set via ADMIN_DEVICE_CODE environment variable' });
 }
 
 async function handleCheckAuth(request) {
@@ -214,7 +200,7 @@ async function handleListDevices(request) {
   }
   const { data, error } = await supabase
     .from('device_codes')
-    .select('device_code,is_admin,active,created_at')
+    .select('device_code,active,created_at')
     .order('created_at', { ascending: false });
   if (error) {
     return jsonResponse({ error: error.message }, 500);

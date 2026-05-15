@@ -168,13 +168,13 @@ function renderAccessForm() {
   section.className = 'section';
   section.innerHTML = `
     <div class="centered">
-      <h1>Secure AI Chat</h1>
-      <p>Enter your one-time access code to register this device and start chatting.</p>
+      <h1>Secure Access</h1>
+      <p>Enter your one-time access code to register this device.</p>
     </div>
     <form id="access-form" class="form-field">
       <label for="access-code">One-time access code</label>
       <input id="access-code" class="input" type="text" autocomplete="off" placeholder="Enter code" />
-      <button class="button" type="submit">Unlock Chat</button>
+      <button class="button" type="submit">Unlock</button>
     </form>
     <div id="access-error"></div>
     <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px;">

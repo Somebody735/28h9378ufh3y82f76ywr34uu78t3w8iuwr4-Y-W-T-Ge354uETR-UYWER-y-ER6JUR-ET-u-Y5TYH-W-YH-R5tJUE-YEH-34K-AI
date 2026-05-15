@@ -21,7 +21,6 @@ const state = {
   deviceCode: '',
   accessPassword: '',
   authorized: false,
-  isAdmin: false,
   error: '',
   messages: [
     { role: 'system', content: 'You are a helpful AI assistant. Answer user questions clearly and politely.' },
@@ -148,11 +147,9 @@ async function checkAuthorization() {
   try {
     const result = await apiCall('checkAuth');
     state.authorized = result?.authorized === true;
-    state.isAdmin = result?.is_admin === true;
     state.error = '';
   } catch (error) {
     state.authorized = false;
-    state.isAdmin = false;
     state.error = error.message || 'Unable to verify access.';
   }
 }

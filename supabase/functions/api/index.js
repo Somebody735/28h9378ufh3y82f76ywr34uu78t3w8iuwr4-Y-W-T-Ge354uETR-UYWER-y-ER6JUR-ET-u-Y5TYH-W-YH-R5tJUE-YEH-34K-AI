@@ -70,6 +70,9 @@ async function handleCheckAuth(request) {
   const deviceCode = request.headers.get('x-device-code');
   const accessPassword = request.headers.get('x-access-password');
   const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device) {
+    await supabase.from('unauthorized_visits').insert({ device_code: deviceCode });
+  }
   return jsonResponse({ authorized: !!device, is_admin: !!device?.is_admin });
 }
 
@@ -98,7 +101,6 @@ async function handleRedeemOtp(request, payload) {
     device_code: deviceCode,
     access_password: otp,
     active: true,
-    is_admin: false,
     created_at: now,
     updated_at: now,
   }, { onConflict: 'device_code' });
@@ -200,7 +202,7 @@ async function handleListDevices(request) {
   }
   const { data, error } = await supabase
     .from('device_codes')
-    .select('device_code,active,created_at')
+    .select('device_code,name,active,created_at')
     .order('created_at', { ascending: false });
   if (error) {
     return jsonResponse({ error: error.message }, 500);
@@ -220,6 +222,102 @@ async function handleRevokeDevice(request, payload) {
     return jsonResponse({ error: 'Target device code is required.' }, 400);
   }
   const { error } = await supabase.from('device_codes').update({ active: false, updated_at: new Date().toISOString() }).eq('device_code', targetDevice);
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse({ ok: true });
+}
+
+async function handleUpdateDeviceName(request, payload) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const targetDevice = payload?.device_code;
+  const name = payload?.name;
+  if (!targetDevice) {
+    return jsonResponse({ error: 'Target device code is required.' }, 400);
+  }
+  const { error } = await supabase.from('device_codes').update({ name, updated_at: new Date().toISOString() }).eq('device_code', targetDevice);
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse({ ok: true });
+}
+
+async function handleDeleteDevice(request, payload) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const targetDevice = payload?.device_code;
+  if (!targetDevice) {
+    return jsonResponse({ error: 'Target device code is required.' }, 400);
+  }
+  const { error } = await supabase.from('device_codes').delete().eq('device_code', targetDevice);
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse({ ok: true });
+}
+
+async function handleDeleteOtp(request, payload) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const code = payload?.code;
+  if (!code) {
+    return jsonResponse({ error: 'OTP code is required.' }, 400);
+  }
+  const { error } = await supabase.from('one_time_passwords').delete().eq('code', code);
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse({ ok: true });
+}
+
+async function handleListUnauthorizedVisits(request) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const { data, error } = await supabase.from('unauthorized_visits').select('*').order('visited_at', { ascending: false });
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse(data);
+}
+
+async function handleTrackUnauthorizedVisit(request) {
+  const deviceCode = request.headers.get('x-device-code');
+  if (!deviceCode) {
+    return jsonResponse({ ok: true });
+  }
+  await supabase.from('unauthorized_visits').insert({ device_code: deviceCode });
+  return jsonResponse({ ok: true });
+}
+
+async function handleDeleteVisit(request, payload) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const id = payload?.id;
+  if (!id) {
+    return jsonResponse({ error: 'Visit ID is required.' }, 400);
+  }
+  const { error } = await supabase.from('unauthorized_visits').delete().eq('id', id);
   if (error) {
     return jsonResponse({ error: error.message }, 500);
   }
@@ -254,6 +352,18 @@ serve(async (request) => {
       return handleListDevices(request);
     case 'revokeDevice':
       return handleRevokeDevice(request, payload);
+    case 'updateDeviceName':
+      return handleUpdateDeviceName(request, payload);
+    case 'deleteDevice':
+      return handleDeleteDevice(request, payload);
+    case 'deleteOtp':
+      return handleDeleteOtp(request, payload);
+    case 'listUnauthorizedVisits':
+      return handleListUnauthorizedVisits(request);
+    case 'trackUnauthorizedVisit':
+      return handleTrackUnauthorizedVisit(request);
+    case 'deleteVisit':
+      return handleDeleteVisit(request, payload);
     default:
       return jsonResponse({ error: `Unknown action: ${action}` }, 400);
   }

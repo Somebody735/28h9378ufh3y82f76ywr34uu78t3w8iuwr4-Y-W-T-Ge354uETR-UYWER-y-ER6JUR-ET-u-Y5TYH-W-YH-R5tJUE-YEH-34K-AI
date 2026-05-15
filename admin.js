@@ -23,6 +23,7 @@ const state = {
   error: '',
   otpList: [],
   deviceList: [],
+  unauthorizedVisits: [],
 };
 
 function getOrCreateDeviceCode() {
@@ -187,13 +188,19 @@ function renderAdminPanel() {
       <div class="section">
         <h2>Active Devices</h2>
         <div class="table-wrapper">
-          <table id="devices-table"><thead><tr><th>Device Code</th><th>Admin</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table>
+          <table id="devices-table"><thead><tr><th>Name</th><th>Device Code</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table>
         </div>
       </div>
       <div class="section">
         <h2>One-time Passwords</h2>
         <div class="table-wrapper">
-          <table id="otps-table"><thead><tr><th>Code</th><th>Redeemed</th><th>Redeemed Device</th><th>Created</th></tr></thead><tbody></tbody></table>
+          <table id="otps-table"><thead><tr><th>Code</th><th>Redeemed</th><th>Redeemed Device</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="section">
+        <h2>Unauthorized Visits</h2>
+        <div class="table-wrapper">
+          <table id="visits-table"><thead><tr><th>Device Code</th><th>Visited At</th><th>Actions</th></tr></thead><tbody></tbody></table>
         </div>
       </div>
       <div style="margin-top:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
@@ -231,11 +238,13 @@ function renderAdminPanel() {
 
 async function loadAdminData() {
   try {
-    const [devices, otps] = await Promise.all([apiCall('listDevices'), apiCall('listOtps')]);
+    const [devices, otps, visits] = await Promise.all([apiCall('listDevices'), apiCall('listOtps'), apiCall('listUnauthorizedVisits')]);
     state.deviceList = devices || [];
     state.otpList = otps || [];
+    state.unauthorizedVisits = visits || [];
     renderDevices();
     renderOtps();
+    renderUnauthorizedVisits();
   } catch (error) {
     renderBlocked(error.message || 'Unable to load admin data.');
   }
@@ -247,24 +256,54 @@ function renderDevices() {
   tbody.innerHTML = '';
   state.deviceList.forEach((device) => {
     const row = document.createElement('tr');
+    const displayName = device.name || '—';
     row.innerHTML = `
+      <td><input class="input" type="text" value="${displayName}" data-device-code="${device.device_code}" style="width:120px; padding:4px 8px;" /></td>
       <td>${device.device_code}</td>
-      <td>${device.is_admin ? '<span class="status-pill active">Admin</span>' : 'User'}</td>
+      <td>User</td>
       <td>${device.active ? '<span class="status-pill active">Active</span>' : '<span class="status-pill inactive">Revoked</span>'}</td>
       <td></td>
     `;
     const actionCell = row.querySelector('td:last-child');
-    if (!device.is_admin && device.active) {
-      const button = document.createElement('button');
-      button.className = 'button';
-      button.textContent = 'Revoke';
-      button.addEventListener('click', async () => {
+    const nameInput = row.querySelector('input');
+    
+    const updateButton = document.createElement('button');
+    updateButton.className = 'button';
+    updateButton.textContent = 'Update';
+    updateButton.style.marginRight = '8px';
+    updateButton.addEventListener('click', async () => {
+      const newName = nameInput.value.trim();
+      try {
+        await apiCall('updateDeviceName', { device_code: device.device_code, name: newName || null });
+        await loadAdminData();
+      } catch (error) {
+        alert(error.message || 'Unable to update device name.');
+      }
+    });
+    actionCell.appendChild(updateButton);
+    
+    if (device.active) {
+      const revokeButton = document.createElement('button');
+      revokeButton.className = 'button';
+      revokeButton.textContent = 'Revoke';
+      revokeButton.style.marginRight = '8px';
+      revokeButton.addEventListener('click', async () => {
         await revokeDevice(device.device_code);
       });
-      actionCell.appendChild(button);
-    } else {
-      actionCell.textContent = '—';
+      actionCell.appendChild(revokeButton);
     }
+    
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'button';
+    deleteButton.textContent = 'Delete';
+    deleteButton.style.backgroundColor = '#dc2626';
+    deleteButton.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to delete this device?')) {
+        await deleteDevice(device.device_code);
+      }
+    });
+    actionCell.appendChild(deleteButton);
+    
     tbody.appendChild(row);
   });
 }
@@ -280,7 +319,19 @@ function renderOtps() {
       <td>${otp.redeemed_at ? 'Yes' : 'No'}</td>
       <td>${otp.redeemed_device_code || '—'}</td>
       <td>${new Date(otp.created_at).toLocaleString()}</td>
+      <td></td>
     `;
+    const actionCell = row.querySelector('td:last-child');
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'button';
+    deleteButton.textContent = 'Delete';
+    deleteButton.style.backgroundColor = '#dc2626';
+    deleteButton.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to delete this OTP?')) {
+        await deleteOtp(otp.code);
+      }
+    });
+    actionCell.appendChild(deleteButton);
     tbody.appendChild(row);
   });
 }
@@ -294,10 +345,63 @@ async function revokeDevice(deviceCode) {
   }
 }
 
+async function deleteDevice(deviceCode) {
+  try {
+    await apiCall('deleteDevice', { device_code: deviceCode });
+    await loadAdminData();
+  } catch (error) {
+    renderBlocked(error.message || 'Unable to delete the device.');
+  }
+}
+
+async function deleteOtp(code) {
+  try {
+    await apiCall('deleteOtp', { code });
+    await loadAdminData();
+  } catch (error) {
+    renderBlocked(error.message || 'Unable to delete the OTP.');
+  }
+}
+
+function renderUnauthorizedVisits() {
+  const tbody = document.querySelector('#visits-table tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  state.unauthorizedVisits.forEach((visit) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${visit.device_code}</td>
+      <td>${new Date(visit.visited_at).toLocaleString()}</td>
+      <td></td>
+    `;
+    const actionCell = row.querySelector('td:last-child');
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'button';
+    deleteButton.textContent = 'Delete';
+    deleteButton.style.backgroundColor = '#dc2626';
+    deleteButton.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to delete this visit record?')) {
+        await deleteVisit(visit.id);
+      }
+    });
+    actionCell.appendChild(deleteButton);
+    tbody.appendChild(row);
+  });
+}
+
+async function deleteVisit(id) {
+  try {
+    await apiCall('deleteVisit', { id });
+    await loadAdminData();
+  } catch (error) {
+    renderBlocked(error.message || 'Unable to delete the visit record.');
+  }
+}
+
 async function ensureAdmin() {
   try {
     const result = await apiCall('checkAuth');
-    state.authorized = result?.authorized === true && result?.is_admin === true;
+    state.authorized = result?.authorized === true;
     if (!state.authorized) {
       renderBlocked('This device is not the admin device.');
       return;

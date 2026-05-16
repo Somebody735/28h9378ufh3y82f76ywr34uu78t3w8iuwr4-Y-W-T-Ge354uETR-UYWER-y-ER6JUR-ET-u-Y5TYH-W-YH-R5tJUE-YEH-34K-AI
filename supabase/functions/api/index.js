@@ -24,10 +24,10 @@ const MODELS = {
     apiKey: ZAI_API_KEY,
   },
   gemini_pro: {
-    name: 'Gemini Pro',
+    name: 'Gemini 3.1',
     provider: 'gemini',
-    model: 'gemini-pro',
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+    model: 'gemini-3.1-flash-lite',
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent',
     apiKey: GEMINI_API_KEY,
   },
 };

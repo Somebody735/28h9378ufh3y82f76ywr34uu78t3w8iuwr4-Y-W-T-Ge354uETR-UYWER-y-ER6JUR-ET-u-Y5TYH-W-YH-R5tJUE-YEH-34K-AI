@@ -303,6 +303,22 @@ async function handleTrackUnauthorizedVisit(request) {
     return jsonResponse({ ok: true });
   }
   await supabase.from('unauthorized_visits').insert({ device_code: deviceCode });
+  
+  // Limit logs to 1000 entries by deleting oldest ones
+  const { data: countData } = await supabase.from('unauthorized_visits').select('id', { count: 'exact', head: true });
+  const count = countData?.count || 0;
+  if (count > 1000) {
+    const { data: oldestData } = await supabase
+      .from('unauthorized_visits')
+      .select('id')
+      .order('visited_at', { ascending: true })
+      .limit(count - 1000);
+    if (oldestData && oldestData.length > 0) {
+      const idsToDelete = oldestData.map(v => v.id);
+      await supabase.from('unauthorized_visits').delete().in('id', idsToDelete);
+    }
+  }
+  
   return jsonResponse({ ok: true });
 }
 
@@ -318,6 +334,20 @@ async function handleDeleteVisit(request, payload) {
     return jsonResponse({ error: 'Visit ID is required.' }, 400);
   }
   const { error } = await supabase.from('unauthorized_visits').delete().eq('id', id);
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse({ ok: true });
+}
+
+async function handleClearAllVisits(request) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const { error } = await supabase.from('unauthorized_visits').delete().neq('id', 0);
   if (error) {
     return jsonResponse({ error: error.message }, 500);
   }
@@ -364,6 +394,8 @@ serve(async (request) => {
       return handleTrackUnauthorizedVisit(request);
     case 'deleteVisit':
       return handleDeleteVisit(request, payload);
+    case 'clearAllVisits':
+      return handleClearAllVisits(request);
     default:
       return jsonResponse({ error: `Unknown action: ${action}` }, 400);
   }

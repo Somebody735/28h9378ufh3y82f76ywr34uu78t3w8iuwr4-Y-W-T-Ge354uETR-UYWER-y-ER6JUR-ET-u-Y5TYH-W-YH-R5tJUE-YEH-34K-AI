@@ -198,10 +198,7 @@ function renderAdminPanel() {
         </div>
       </div>
       <div class="section">
-        <h2>Unauthorized Visits</h2>
-        <div class="table-wrapper">
-          <table id="visits-table"><thead><tr><th>Device Code</th><th>Visited At</th><th>Actions</th></tr></thead><tbody></tbody></table>
-        </div>
+        <button id="view-logs-button" class="button" style="width:100%; padding:24px; font-size:1.2rem; font-weight:bold;">View Logs</button>
       </div>
       <div style="margin-top:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
         <button id="refresh-button" class="button">Refresh</button>
@@ -213,6 +210,7 @@ function renderAdminPanel() {
   const form = document.querySelector('#create-otp-form');
   const feedback = document.querySelector('#admin-feedback');
   const refreshButton = document.querySelector('#refresh-button');
+  const viewLogsButton = document.querySelector('#view-logs-button');
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -232,6 +230,10 @@ function renderAdminPanel() {
     await loadAdminData();
   });
 
+  viewLogsButton.addEventListener('click', () => {
+    renderLogsModal();
+  });
+
   renderDevices();
   renderOtps();
 }
@@ -244,7 +246,6 @@ async function loadAdminData() {
     state.unauthorizedVisits = visits || [];
     renderDevices();
     renderOtps();
-    renderUnauthorizedVisits();
   } catch (error) {
     renderBlocked(error.message || 'Unable to load admin data.');
   }
@@ -363,8 +364,55 @@ async function deleteOtp(code) {
   }
 }
 
-function renderUnauthorizedVisits() {
-  const tbody = document.querySelector('#visits-table tbody');
+function renderLogsModal() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  
+  const modalContent = document.createElement('div');
+  modalContent.className = 'modal-content';
+  modalContent.style.cssText = 'background:var(--bg);padding:24px;border-radius:8px;max-width:800px;width:90%;max-height:80vh;overflow:auto;';
+  
+  modalContent.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2 style="margin:0;">Visit Logs</h2>
+      <button id="close-modal-button" class="button">Close</button>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;">
+      <button id="clear-logs-button" class="button" style="background:#dc2626;">Clear All Logs</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="logs-table"><thead><tr><th>Device Code</th><th>Visited At</th><th>Actions</th></tr></thead><tbody></tbody></table>
+    </div>
+  `;
+  
+  modal.appendChild(modalContent);
+  document.body.appendChild(modal);
+  
+  const closeButton = modalContent.querySelector('#close-modal-button');
+  const clearButton = modalContent.querySelector('#clear-logs-button');
+  
+  closeButton.addEventListener('click', () => {
+    document.body.removeChild(modal);
+  });
+  
+  clearButton.addEventListener('click', async () => {
+    if (confirm('Are you sure you want to clear all visit logs?')) {
+      try {
+        await apiCall('clearAllVisits');
+        await loadAdminData();
+        renderLogsTable();
+      } catch (error) {
+        alert(error.message || 'Unable to clear logs.');
+      }
+    }
+  });
+  
+  renderLogsTable();
+}
+
+function renderLogsTable() {
+  const tbody = document.querySelector('#logs-table tbody');
   if (!tbody) return;
   tbody.innerHTML = '';
   state.unauthorizedVisits.forEach((visit) => {
@@ -382,6 +430,7 @@ function renderUnauthorizedVisits() {
     deleteButton.addEventListener('click', async () => {
       if (confirm('Are you sure you want to delete this visit record?')) {
         await deleteVisit(visit.id);
+        renderLogsTable();
       }
     });
     actionCell.appendChild(deleteButton);

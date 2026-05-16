@@ -250,7 +250,6 @@ function renderChatInterface() {
             <textarea id="chat-input" placeholder="Ask the AI anything..." required></textarea>
             <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
               <button class="button" type="submit">Send</button>
-              <button id="signout-button" class="button" type="button">Sign Out</button>
             </div>
           </form>
         </div>

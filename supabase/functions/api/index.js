@@ -4,9 +4,36 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const ZAI_API_KEY = Deno.env.get('ZAI_API_KEY');
-const ZAI_API_URL = Deno.env.get('ZAI_API_URL') || 'https://api.z.ai/v1/chat/completions';
-const ZAI_MODEL = Deno.env.get('ZAI_MODEL') || 'glm';
+const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 const ADMIN_DEVICE_CODE = Deno.env.get('ADMIN_DEVICE_CODE');
+
+// Model configuration - user will add models and endpoints here
+const MODELS = {
+  zai_glm: {
+    name: 'ZAI GLM',
+    provider: 'zai',
+    model: 'glm',
+    url: 'https://api.z.ai/v1/chat/completions',
+    apiKey: ZAI_API_KEY,
+  },
+  zai_glm4: {
+    name: 'ZAI GLM-4',
+    provider: 'zai',
+    model: 'glm-4',
+    url: 'https://api.z.ai/v1/chat/completions',
+    apiKey: ZAI_API_KEY,
+  },
+  gemini_pro: {
+    name: 'Gemini Pro',
+    provider: 'gemini',
+    model: 'gemini-pro',
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+    apiKey: GEMINI_API_KEY,
+  },
+};
+
+// Fallback models for ZAI rate limit
+const ZAI_FALLBACK_MODELS = ['zai_glm', 'zai_glm4'];
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -133,28 +160,136 @@ async function handleChat(request, payload) {
     return jsonResponse({ error: 'Missing chat history.' }, 400);
   }
 
+  // Get model to use - admin can override, others use default
+  let modelKey = payload?.model;
+  if (!modelKey || !MODELS[modelKey]) {
+    // Get default model from settings
+    const { data: settingData } = await supabase.from('settings').select('value').eq('key', 'default_model').single();
+    modelKey = settingData?.value || 'zai_glm';
+  }
+
+  const modelConfig = MODELS[modelKey];
+  if (!modelConfig) {
+    return jsonResponse({ error: 'Invalid model configuration.' }, 500);
+  }
+
+  // Try the requested model with fallback for ZAI rate limit
+  let result;
+  let lastError;
+  
+  if (modelConfig.provider === 'zai') {
+    // Try the requested model first
+    result = await tryZaiModel(modelConfig, messages);
+    
+    // If rate limit error, try fallback models
+    if (result?.error?.includes('1302') || result?.error?.includes('Rate limit')) {
+      for (const fallbackKey of ZAI_FALLBACK_MODELS) {
+        if (fallbackKey !== modelKey && MODELS[fallbackKey]) {
+          result = await tryZaiModel(MODELS[fallbackKey], messages);
+          if (!result?.error) break;
+        }
+      }
+    }
+  } else if (modelConfig.provider === 'gemini') {
+    result = await tryGeminiModel(modelConfig, messages);
+  } else {
+    return jsonResponse({ error: 'Unsupported model provider.' }, 500);
+  }
+
+  if (result?.error) {
+    return jsonResponse({ error: result.error }, 500);
+  }
+
+  return jsonResponse({ assistant: result.assistant });
+}
+
+async function tryZaiModel(modelConfig, messages) {
   const body = {
-    model: ZAI_MODEL,
+    model: modelConfig.model,
     messages: messages.map((message) => ({ role: message.role, content: message.content })),
   };
 
-  const response = await fetch(ZAI_API_URL, {
+  const response = await fetch(modelConfig.url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${ZAI_API_KEY}`,
+      Authorization: `Bearer ${modelConfig.apiKey}`,
     },
     body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    return jsonResponse({ error: `ZAI error: ${errorText}` }, 500);
+    return { error: `ZAI error: ${errorText}` };
   }
 
   const result = await response.json();
   const assistant = result?.choices?.[0]?.message?.content || result?.output?.[0]?.content || result?.response || JSON.stringify(result);
-  return jsonResponse({ assistant });
+  return { assistant };
+}
+
+async function tryGeminiModel(modelConfig, messages) {
+  const body = {
+    contents: messages.map((message) => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: message.content }],
+    })),
+  };
+
+  const url = `${modelConfig.url}?key=${modelConfig.apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return { error: `Gemini error: ${errorText}` };
+  }
+
+  const result = await response.json();
+  const assistant = result?.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(result);
+  return { assistant };
+}
+
+async function handleGetModels(request) {
+  const models = Object.keys(MODELS).map((key) => ({
+    key,
+    name: MODELS[key].name,
+    provider: MODELS[key].provider,
+  }));
+  return jsonResponse({ models });
+}
+
+async function handleGetDefaultModel(request) {
+  const { data: settingData } = await supabase.from('settings').select('value').eq('key', 'default_model').single();
+  const defaultModel = settingData?.value || 'zai_glm';
+  return jsonResponse({ defaultModel });
+}
+
+async function handleSetDefaultModel(request, payload) {
+  const deviceCode = request.headers.get('x-device-code');
+  const accessPassword = request.headers.get('x-access-password');
+  const device = await verifyDevice(deviceCode, accessPassword);
+  if (!device?.is_admin) {
+    return jsonResponse({ error: 'Admin required.' }, 403);
+  }
+  const modelKey = payload?.model;
+  if (!modelKey || !MODELS[modelKey]) {
+    return jsonResponse({ error: 'Invalid model key.' }, 400);
+  }
+  const { error } = await supabase.from('settings').upsert({
+    key: 'default_model',
+    value: modelKey,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'key' });
+  if (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+  return jsonResponse({ ok: true });
 }
 
 async function handleListOtps(request) {
@@ -396,6 +531,12 @@ serve(async (request) => {
       return handleDeleteVisit(request, payload);
     case 'clearAllVisits':
       return handleClearAllVisits(request);
+    case 'getModels':
+      return handleGetModels(request);
+    case 'getDefaultModel':
+      return handleGetDefaultModel(request);
+    case 'setDefaultModel':
+      return handleSetDefaultModel(request, payload);
     default:
       return jsonResponse({ error: `Unknown action: ${action}` }, 400);
   }

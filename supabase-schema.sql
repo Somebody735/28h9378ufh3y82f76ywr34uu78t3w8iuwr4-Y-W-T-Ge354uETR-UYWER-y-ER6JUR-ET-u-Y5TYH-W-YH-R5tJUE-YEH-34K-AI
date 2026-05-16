@@ -22,6 +22,12 @@ create table if not exists unauthorized_visits (
   visited_at timestamptz not null default now()
 );
 
+create table if not exists settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists idx_one_time_passwords_redeemed_at on one_time_passwords (redeemed_at);
 create index if not exists idx_unauthorized_visits_device_code on unauthorized_visits (device_code);
 create index if not exists idx_unauthorized_visits_visited_at on unauthorized_visits (visited_at);

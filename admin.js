@@ -24,6 +24,8 @@ const state = {
   otpList: [],
   deviceList: [],
   unauthorizedVisits: [],
+  availableModels: [],
+  defaultModel: '',
 };
 
 function getOrCreateDeviceCode() {
@@ -186,6 +188,10 @@ function renderAdminPanel() {
       </div>
       <div id="admin-feedback"></div>
       <div class="section">
+        <h2>Default Model</h2>
+        <div id="default-model-selector"></div>
+      </div>
+      <div class="section">
         <h2>Active Devices</h2>
         <div class="table-wrapper">
           <table id="devices-table"><thead><tr><th>Name</th><th>Device Code</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table>
@@ -240,12 +246,21 @@ function renderAdminPanel() {
 
 async function loadAdminData() {
   try {
-    const [devices, otps, visits] = await Promise.all([apiCall('listDevices'), apiCall('listOtps'), apiCall('listUnauthorizedVisits')]);
+    const [devices, otps, visits, models, defaultModel] = await Promise.all([
+      apiCall('listDevices'),
+      apiCall('listOtps'),
+      apiCall('listUnauthorizedVisits'),
+      apiCall('getModels'),
+      apiCall('getDefaultModel'),
+    ]);
     state.deviceList = devices || [];
     state.otpList = otps || [];
     state.unauthorizedVisits = visits || [];
+    state.availableModels = models?.models || [];
+    state.defaultModel = defaultModel?.defaultModel || '';
     renderDevices();
     renderOtps();
+    renderDefaultModelSelector();
   } catch (error) {
     renderBlocked(error.message || 'Unable to load admin data.');
   }
@@ -435,6 +450,33 @@ function renderLogsTable() {
     });
     actionCell.appendChild(deleteButton);
     tbody.appendChild(row);
+  });
+}
+
+function renderDefaultModelSelector() {
+  const container = document.querySelector('#default-model-selector');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="form-field">
+      <label for="default-model-select">Select default model for all users</label>
+      <select id="default-model-select" class="input">
+        ${state.availableModels.map(m => `<option value="${m.key}" ${m.key === state.defaultModel ? 'selected' : ''}>${m.name}</option>`).join('')}
+      </select>
+      <button id="save-default-model-button" class="button" style="margin-top:12px;">Save Default Model</button>
+    </div>
+  `;
+  
+  const select = container.querySelector('#default-model-select');
+  const saveButton = container.querySelector('#save-default-model-button');
+  
+  saveButton.addEventListener('click', async () => {
+    try {
+      await apiCall('setDefaultModel', { model: select.value });
+      state.defaultModel = select.value;
+      alert('Default model saved successfully.');
+    } catch (error) {
+      alert('Failed to save default model: ' + error.message);
+    }
   });
 }
 

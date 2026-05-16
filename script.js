@@ -21,10 +21,13 @@ const state = {
   deviceCode: '',
   accessPassword: '',
   authorized: false,
+  isAdmin: false,
   error: '',
   messages: [
     { role: 'system', content: 'You are a helpful AI assistant. Answer user questions clearly and politely.' },
   ],
+  availableModels: [],
+  selectedModel: '',
 };
 
 function getOrCreateDeviceCode() {
@@ -147,9 +150,22 @@ async function checkAuthorization() {
   try {
     const result = await apiCall('checkAuth');
     state.authorized = result?.authorized === true;
+    state.isAdmin = result?.is_admin === true;
     state.error = '';
+    
+    if (state.authorized) {
+      try {
+        const modelsResult = await apiCall('getModels');
+        state.availableModels = modelsResult?.models || [];
+        const defaultModelResult = await apiCall('getDefaultModel');
+        state.selectedModel = defaultModelResult?.defaultModel || '';
+      } catch (error) {
+        console.warn('Failed to load models:', error.message);
+      }
+    }
   } catch (error) {
     state.authorized = false;
+    state.isAdmin = false;
     state.error = error.message || 'Unable to verify access.';
   }
 }
@@ -250,7 +266,18 @@ function renderChatInterface() {
             <textarea id="chat-input" placeholder="Ask the AI anything..." required></textarea>
             <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
               <button class="button" type="submit">Send</button>
+              <button id="export-chat-button" class="button" type="button">Export Chat</button>
+              <button id="import-chat-button" class="button" type="button">Import Chat</button>
             </div>
+            ${state.isAdmin ? `
+            <div style="margin-top:12px;">
+              <label for="model-select">Model</label>
+              <select id="model-select" class="input">
+                <option value="">Use Default</option>
+                ${state.availableModels.map(m => `<option value="${m.key}">${m.name}</option>`).join('')}
+              </select>
+            </div>
+            ` : ''}
           </form>
         </div>
       </div>
@@ -261,7 +288,18 @@ function renderChatInterface() {
   const chatLog = section.querySelector('#chat-log');
   const form = section.querySelector('#chat-form');
   const input = section.querySelector('#chat-input');
-  const signout = section.querySelector('#signout-button');
+  const exportButton = section.querySelector('#export-chat-button');
+  const importButton = section.querySelector('#import-chat-button');
+  const modelSelect = section.querySelector('#model-select');
+
+  exportButton.addEventListener('click', exportChat);
+  importButton.addEventListener('click', importChat);
+  
+  if (modelSelect) {
+    modelSelect.addEventListener('change', (e) => {
+      state.selectedModel = e.target.value;
+    });
+  }
 
   if (state.messages.length > 1) {
     state.messages.slice(1).forEach((message) => {
@@ -283,7 +321,11 @@ function renderChatInterface() {
     chatLog.scrollTop = chatLog.scrollHeight;
 
     try {
-      const response = await apiCall('chat', { messages: state.messages.filter((msg) => msg.role !== 'system') });
+      const payload = { messages: state.messages.filter((msg) => msg.role !== 'system') };
+      if (state.isAdmin && state.selectedModel) {
+        payload.model = state.selectedModel;
+      }
+      const response = await apiCall('chat', payload);
       const assistantText = response?.assistant || 'Received no answer. Try again.';
       state.messages.push({ role: 'assistant', content: assistantText });
       spinner.textContent = '';
@@ -294,13 +336,51 @@ function renderChatInterface() {
     }
     chatLog.scrollTop = chatLog.scrollHeight;
   });
+}
 
-  signout.addEventListener('click', () => {
-    localStorage.removeItem(PASSWORD_STORAGE_KEY);
-    state.accessPassword = '';
-    state.authorized = false;
-    render();
+function exportChat() {
+  const chatData = {
+    messages: state.messages.filter((msg) => msg.role !== 'system'),
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(chatData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `chat-export-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importChat() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json';
+  input.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.addEventListener('load', (e) => {
+      try {
+        const chatData = JSON.parse(e.target.result);
+        if (Array.isArray(chatData.messages)) {
+          state.messages = [
+            { role: 'system', content: 'You are a helpful AI assistant. Answer user questions clearly and politely.' },
+            ...chatData.messages,
+          ];
+          render();
+        } else {
+          alert('Invalid chat file format.');
+        }
+      } catch (error) {
+        alert('Failed to parse chat file: ' + error.message);
+      }
+    });
+    reader.readAsText(file);
   });
+  input.click();
 }
 
 async function redeemOtp(code) {

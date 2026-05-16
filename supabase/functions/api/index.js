@@ -10,17 +10,17 @@ const ADMIN_DEVICE_CODE = Deno.env.get('ADMIN_DEVICE_CODE');
 // Model configuration - user will add models and endpoints here
 const MODELS = {
   zai_glm: {
-    name: 'ZAI GLM',
+    name: 'ZAI GLM-4.7',
     provider: 'zai',
-    model: 'glm',
-    url: 'https://api.z.ai/v1/chat/completions',
+    model: 'glm-4.7-flash',
+    url: 'https://api.z.ai/api/paas/v4/chat/completions',
     apiKey: ZAI_API_KEY,
   },
   zai_glm4: {
-    name: 'ZAI GLM-4',
+    name: 'ZAI GLM-4.5',
     provider: 'zai',
-    model: 'glm-4',
-    url: 'https://api.z.ai/v1/chat/completions',
+    model: 'glm-4.5-flash',
+    url: 'https://api.z.ai/api/paas/v4/chat/completions',
     apiKey: ZAI_API_KEY,
   },
   gemini_pro: {

@@ -28,6 +28,8 @@ const state = {
   ],
   availableModels: [],
   selectedModel: '',
+  editingMessageIndex: null,
+  editingOriginalText: '',
 };
 
 function getOrCreateDeviceCode() {
@@ -237,15 +239,67 @@ function renderAccessForm() {
   });
 }
 
-function appendMessage(role, text) {
+function parseMarkdown(text) {
+  // Simple markdown parser
+  let html = text
+    // Escape HTML
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    // Code blocks
+    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Bold
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Line breaks
+    .replace(/\n/g, '<br>');
+  return html;
+}
+
+function appendMessage(role, text, index = null) {
   const message = document.createElement('div');
   message.className = `message ${role}`;
+  message.dataset.index = index !== null ? index : '';
+  
   const label = document.createElement('small');
   label.textContent = role === 'user' ? 'You' : 'Assistant';
   message.appendChild(label);
+  
   const content = document.createElement('div');
-  content.textContent = text;
+  content.className = 'message-content';
+  content.innerHTML = parseMarkdown(text);
   message.appendChild(content);
+  
+  // Add action buttons (edit/copy) - only show on hover
+  const actions = document.createElement('div');
+  actions.className = 'message-actions';
+  actions.style.cssText = 'opacity:0; transition:opacity 0.2s; display:flex; gap:8px; margin-top:8px;';
+  
+  if (role === 'user') {
+    const editButton = document.createElement('button');
+    editButton.className = 'button';
+    editButton.textContent = 'Edit';
+    editButton.style.cssText = 'font-size:0.8rem; padding:4px 8px;';
+    editButton.addEventListener('click', () => startEditingMessage(index, text));
+    actions.appendChild(editButton);
+  }
+  
+  const copyButton = document.createElement('button');
+  copyButton.className = 'button';
+  copyButton.textContent = 'Copy';
+  copyButton.style.cssText = 'font-size:0.8rem; padding:4px 8px;';
+  copyButton.addEventListener('click', () => copyMessage(text));
+  actions.appendChild(copyButton);
+  
+  message.appendChild(actions);
+  
+  // Show actions on hover
+  message.addEventListener('mouseenter', () => actions.style.opacity = '1');
+  message.addEventListener('mouseleave', () => actions.style.opacity = '0');
+  
   return message;
 }
 
@@ -265,9 +319,14 @@ function renderChatInterface() {
             <label for="chat-input">Message</label>
             <textarea id="chat-input" placeholder="Ask the AI anything..." required></textarea>
             <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
-              <button class="button" type="submit">Send</button>
-              <button id="export-chat-button" class="button" type="button">Export Chat</button>
-              <button id="import-chat-button" class="button" type="button">Import Chat</button>
+              ${state.editingMessageIndex !== null ? `
+                <button class="button" type="submit">Update</button>
+                <button id="cancel-edit-button" class="button" type="button">Cancel</button>
+              ` : `
+                <button class="button" type="submit">Send</button>
+                <button id="export-chat-button" class="button" type="button">Export Chat</button>
+                <button id="import-chat-button" class="button" type="button">Import Chat</button>
+              `}
             </div>
             ${state.isAdmin ? `
             <div style="margin-top:12px;">
@@ -291,20 +350,27 @@ function renderChatInterface() {
   const exportButton = section.querySelector('#export-chat-button');
   const importButton = section.querySelector('#import-chat-button');
   const modelSelect = section.querySelector('#model-select');
+  const cancelEditButton = section.querySelector('#cancel-edit-button');
 
-  exportButton.addEventListener('click', exportChat);
-  importButton.addEventListener('click', importChat);
+  exportButton?.addEventListener('click', exportChat);
+  importButton?.addEventListener('click', importChat);
+  cancelEditButton?.addEventListener('click', cancelEditing);
   
   if (modelSelect) {
     modelSelect.addEventListener('change', (e) => {
       state.selectedModel = e.target.value;
     });
   }
+  
+  if (state.editingMessageIndex !== null) {
+    input.value = state.editingOriginalText;
+    input.focus();
+  }
 
   if (state.messages.length > 1) {
-    state.messages.slice(1).forEach((message) => {
+    state.messages.slice(1).forEach((message, index) => {
       if (message.role !== 'system') {
-        chatLog.appendChild(appendMessage(message.role, message.content));
+        chatLog.appendChild(appendMessage(message.role, message.content, index + 1));
       }
     });
   }
@@ -313,8 +379,20 @@ function renderChatInterface() {
     event.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    state.messages.push({ role: 'user', content: text });
-    chatLog.appendChild(appendMessage('user', text));
+    
+    if (state.editingMessageIndex !== null) {
+      // Edit mode: revert to that point and send
+      state.messages = state.messages.slice(0, state.editingMessageIndex);
+      state.messages.push({ role: 'user', content: text });
+      state.editingMessageIndex = null;
+      state.editingOriginalText = '';
+      render();
+    } else {
+      // Normal mode
+      state.messages.push({ role: 'user', content: text });
+      chatLog.appendChild(appendMessage('user', text, state.messages.length - 1));
+    }
+    
     input.value = '';
     const spinner = appendMessage('assistant', 'Thinking...');
     chatLog.appendChild(spinner);
@@ -330,11 +408,34 @@ function renderChatInterface() {
       state.messages.push({ role: 'assistant', content: assistantText });
       spinner.textContent = '';
       spinner.appendChild(document.createTextNode(assistantText));
+      // Re-render to show markdown formatting
+      const newMessage = appendMessage('assistant', assistantText, state.messages.length - 1);
+      chatLog.replaceChild(newMessage, spinner);
     } catch (error) {
       spinner.textContent = '';
       spinner.appendChild(document.createTextNode(`Chat failed: ${error.message || 'unknown error'}`));
     }
     chatLog.scrollTop = chatLog.scrollHeight;
+  });
+}
+
+function startEditingMessage(index, text) {
+  state.editingMessageIndex = index;
+  state.editingOriginalText = text;
+  render();
+}
+
+function cancelEditing() {
+  state.editingMessageIndex = null;
+  state.editingOriginalText = '';
+  render();
+}
+
+function copyMessage(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Message copied to clipboard.');
+  }).catch(() => {
+    alert('Failed to copy message.');
   });
 }
 

@@ -240,24 +240,104 @@ function renderAccessForm() {
 }
 
 function parseMarkdown(text) {
-  // Simple markdown parser
-  let html = text
-    // Escape HTML
+  // Enhanced markdown parser
+  let html = text;
+  
+  // Escape HTML first
+  html = html
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // Code blocks
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Bold
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // Line breaks
-    .replace(/\n/g, '<br>');
+    .replace(/>/g, '&gt;');
+  
+  // Code blocks with language support
+  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+    const language = lang || 'plaintext';
+    return `<pre class="code-block-wrapper"><div class="code-header"><span class="code-language">${language}</span><button class="copy-code-button" onclick="copyCode(this)">Copy</button></div><code class="language-${language}">${code}</code></pre>`;
+  });
+  
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  
+  // Math (KaTeX) - inline $...$ and block $$...$$
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (match, math) => {
+    try {
+      return katex.renderToString(math, { displayMode: true });
+    } catch (e) {
+      return match;
+    }
+  });
+  html = html.replace(/\$([^$]+)\$/g, (match, math) => {
+    try {
+      return katex.renderToString(math, { displayMode: false });
+    } catch (e) {
+      return match;
+    }
+  });
+  
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  
+  // Horizontal lines
+  html = html.replace(/^---$/gm, '<hr>');
+  html = html.replace(/^\*\*\*$/gm, '<hr>');
+  
+  // Strikethrough
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  
+  // Blockquotes
+  html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+  
+  // Unordered lists
+  html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  
+  // Tables
+  html = html.replace(/\|(.+)\|/g, (match, content) => {
+    const cells = content.split('|').map(c => c.trim());
+    const isHeader = cells.every(c => /^[-:]+$/.test(c));
+    if (isHeader) return ''; // Skip separator row
+    return `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+  });
+  html = html.replace(/(<tr>.*<\/tr>\n?)+/g, '<table>$&</table>');
+  
+  // Line breaks (but not in block elements)
+  html = html.replace(/\n/g, '<br>');
+  
+  // Clean up extra BRs in block elements
+  html = html.replace(/<br><(h[1-6]|ul|ol|li|blockquote|pre|table|hr)/g, '<$1');
+  html = html.replace(/(<\/h[1-6]|<\/ul|<\/ol|<\/li|<\/blockquote|<\/pre|<\/table|<hr)><br>/g, '$1');
+  
   return html;
 }
+
+function copyCode(button) {
+  const codeBlock = button.closest('.code-block-wrapper').querySelector('code');
+  const code = codeBlock.textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    button.textContent = 'Copied!';
+    setTimeout(() => button.textContent = 'Copy', 2000);
+  }).catch(() => {
+    button.textContent = 'Failed';
+    setTimeout(() => button.textContent = 'Copy', 2000);
+  });
+}
+
+// Make copyCode globally accessible for onclick
+window.copyCode = copyCode;
 
 function appendMessage(role, text, index = null) {
   const message = document.createElement('div');
@@ -272,6 +352,13 @@ function appendMessage(role, text, index = null) {
   content.className = 'message-content';
   content.innerHTML = parseMarkdown(text);
   message.appendChild(content);
+  
+  // Apply syntax highlighting to code blocks
+  content.querySelectorAll('pre code').forEach((block) => {
+    if (typeof hljs !== 'undefined') {
+      hljs.highlightElement(block);
+    }
+  });
   
   // Add action buttons (edit/copy) - only show on hover
   const actions = document.createElement('div');
